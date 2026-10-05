@@ -33,7 +33,8 @@ import {
   getOfframpRate,
   getOrderStatus,
   isFailure,
-  activeOrderId,
+  OfframpOrderUnreadable,
+  activeOrder,
   forgetActiveOrder,
   isTerminal,
   rememberActiveOrder,
@@ -239,10 +240,10 @@ export default function CashOutScreen() {
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const id = await activeOrderId();
-      if (!id || !alive) return;
+      const saved = await activeOrder();
+      if (!saved || !alive) return;
       try {
-        const live = await getOrderStatus(id);
+        const live = await getOrderStatus(saved.id, saved.token);
         if (!alive) return;
         setStatus(live.status);
         if (isTerminal(live.status)) {
@@ -260,13 +261,30 @@ export default function CashOutScreen() {
           amountNGN: live.amountNGN,
           rate: live.rate ?? 0,
           status: live.status,
+          // The status read does not return the token; it came from storage and
+          // the poll below needs it again.
+          accessToken: saved.token,
         });
         // Both come from the backend now. Without them a resumed order showed
         // "₦0 / USDC" and a countdown with no start — a dash where the minutes
         // belong, which reads as an order that has expired when it has not.
         if (live.createdAt) setCreatedAt(new Date(live.createdAt).getTime());
         setStep('deposit');
-      } catch {
+      } catch (err) {
+        if (err instanceof OfframpOrderUnreadable) {
+          // The pointer is no good — an order created before this app build
+          // kept the token, or one whose token was superseded by a retry. It
+          // will still settle; we just cannot follow it here, and keeping the
+          // pointer would mean failing this read on every single launch.
+          void forgetActiveOrder();
+          if (alive) {
+            setError(
+              'A cash-out from an earlier version of the app can no longer be tracked here. ' +
+                'It still completes — check Activity, or your bank alerts.',
+            );
+          }
+          return;
+        }
         // Unreachable backend: leave the fresh form rather than showing an
         // order we cannot describe.
       }
@@ -370,7 +388,7 @@ export default function CashOutScreen() {
       setOrder(created);
       setStatus(created.status);
       setCreatedAt(Date.now());
-      void rememberActiveOrder(created.id);
+      void rememberActiveOrder(created.id, created.accessToken);
       // So the activity feed can call this "Cashed out" rather than a transfer
       // to an unknown address.
       void rememberDepositAddress(created.walletAddress);
@@ -398,9 +416,10 @@ export default function CashOutScreen() {
   useEffect(() => {
     if (step !== 'deposit' || !order) return;
     let alive = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
     const tick = async () => {
       try {
-        const s = await getOrderStatus(order.id);
+        const s = await getOrderStatus(order.id, order.accessToken);
         if (!alive) return;
         setStatus(s.status);
         // The settled figures replace the quote as soon as the provider has
@@ -415,16 +434,31 @@ export default function CashOutScreen() {
           setStep('done');
           void forgetActiveOrder();
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof OfframpOrderUnreadable) {
+          // Not transient: retrying cannot produce a credential we do not have.
+          // Stopping the interval matters more than the message — otherwise this
+          // polls a guaranteed failure every few seconds for as long as the
+          // screen is open. The last status we did read stays on screen; it is
+          // still the truth, just no longer being refreshed.
+          if (timer) clearInterval(timer);
+          if (alive) {
+            setError(
+              'We can no longer check this cash-out from this device. It still completes — ' +
+                'your bank alert is the receipt.',
+            );
+          }
+          return;
+        }
         // Transient: the next tick tries again rather than showing an error
         // over a screen that is otherwise correct.
       }
     };
     void tick();
-    const id = setInterval(tick, POLL_MS);
+    timer = setInterval(tick, POLL_MS);
     return () => {
       alive = false;
-      clearInterval(id);
+      if (timer) clearInterval(timer);
     };
   }, [step, order]);
 
