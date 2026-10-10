@@ -162,7 +162,9 @@ export default function ExploreScreen() {
 
     const [poolResult, rateResult] = await Promise.allSettled([
       loadBlendPools(),
-      getOnrampRate(),
+      // Naira per dollar, which is what this screen shows ("₦… / $1") and
+      // multiplies USD prices by — and naira per USDC is naira per dollar.
+      getOnrampRate('usdc'),
     ]);
     if (poolResult.status === 'fulfilled') setPools(poolResult.value);
     // Only shown when it resolves. A stale or invented rate is worse than none

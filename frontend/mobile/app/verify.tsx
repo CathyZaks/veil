@@ -26,6 +26,7 @@ import {
   loadVerifyDetails,
   provisionCustomer,
   saveVerifyDetails,
+  setNairaKycMismatch,
   setNairaVerified,
   submitKyc,
 } from '../lib/onramp';
@@ -78,6 +79,8 @@ export default function VerifyScreen() {
   // and it is cleared the moment the check comes back either way.
   const [nin, setNin] = useState('');
   const [rejection, setRejection] = useState<string | null>(null);
+  /** Linq verifies this NIN, but against a reference that is not this one. */
+  const [stranded, setStranded] = useState(false);
 
   const ninInput = useRef<TextInput>(null);
 
@@ -129,14 +132,36 @@ export default function VerifyScreen() {
     if (!customerRef || nin.length !== NIN_LENGTH) return;
     setBusy(true);
     setRejection(null);
+    setStranded(false);
     try {
-      await provisionCustomer({
+      // Ask Linq what it already thinks of this reference before spending a
+      // NIN attempt on it.
+      //
+      // Provisioning is idempotent — an existing customer comes back unchanged
+      // with `created: false` — so this is a read of Linq's current view that
+      // we were making anyway and discarding. Having it changes two outcomes:
+      // someone whose reference support has just re-bound is finished here
+      // without submitting anything, and someone whose NIN is bound elsewhere
+      // is told so rather than guessed about. Verification attempts are
+      // rate-limited on Linq's side, so not spending one to learn a fact we
+      // can be told is the difference.
+      const customer = await provisionCustomer({
         customerRef,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
         phone: phone.trim(),
       });
+
+      if (customer.verified) {
+        setNin('');
+        await setNairaVerified(true);
+        // Whatever stranded them is over: Linq verifies this reference now.
+        await setNairaKycMismatch(false);
+        setStage('done');
+        return;
+      }
+
       const result = await submitKyc(customerRef, nin);
       // Cleared whichever way it went. A rejected NIN is still a NIN.
       setNin('');
@@ -169,8 +194,18 @@ export default function VerifyScreen() {
       // This was in `buy-ngn` before verification moved to its own route, and
       // dropping it on the way is why that screen handled this better.
       if (/already|duplicate|exists|in use|verified/i.test(message)) {
-        await setNairaVerified(true);
-        setStage('done');
+        // Both halves are now known, and together they are conclusive: Linq
+        // says this reference is unverified (the check above) and says this
+        // NIN is spent (this error). So the NIN is bound to some other
+        // reference, and no amount of retrying here reaches it.
+        //
+        // This used to mark them verified and hope the reference was the right
+        // one, which handed them a "done" screen and let order creation deliver
+        // the bad news — and that is the loop, because order creation sends
+        // them back here. Say it once, at the only point that can know.
+        await setNairaKycMismatch(true);
+        setStranded(true);
+        setStage('rejected');
         return;
       }
 
@@ -383,7 +418,35 @@ export default function VerifyScreen() {
                 </>
               ) : null}
 
-              {stage === 'rejected' ? (
+              {stage === 'rejected' && stranded ? (
+                <>
+                  {/* Not a rejection at all: the digits are right and the name
+                      matches. Linq has this NIN against another reference, so
+                      there is nothing to correct and nothing to retry — saying
+                      "check your 11 digits" here is the worst answer available,
+                      because they are correct. */}
+                  <View style={styles.errorCard}>
+                    <View style={styles.infoRow}>
+                      <InfoIcon size={16} color={colors.danger} />
+                      <View style={styles.flex}>
+                        <Text style={styles.errorTitle}>This NIN is already verified elsewhere</Text>
+                        <Text style={styles.errorBody}>
+                          Your NIN is fine. It is verified against a different customer
+                          reference — most likely one from an earlier wallet — and a NIN can
+                          only ever verify one. Retrying here cannot reach it.
+                        </Text>
+                        <Text style={styles.errorDetail}>Reference: {customerRef}</Text>
+                        <Text style={styles.errorBody}>
+                          Send that reference to support. Once they have re-bound it, come
+                          back and this screen will finish without asking for your NIN again.
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </>
+              ) : null}
+
+              {stage === 'rejected' && !stranded ? (
                 <>
                   {/* A rejection has to say what to do next, and the likeliest
                       cause is not a typo — it is the name. Linq matches the NIN

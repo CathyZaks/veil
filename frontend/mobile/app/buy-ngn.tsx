@@ -58,6 +58,7 @@ import {
   isNairaKycMismatch,
   isNairaVerified,
   getOnrampStatus,
+  resetNairaVerification,
   secondsUntil,
   setNairaKycMismatch,
   type NairaCoin,
@@ -133,9 +134,37 @@ export default function BuyWithNairaScreen() {
   const goVerify = useCallback(() => {
     router.replace({
       pathname: '/verify',
-      params: { returnTo: '/buy-ngn', label: 'Buy with naira', summary: 'Buying XLM with naira' },
+      params: {
+        returnTo: '/buy-ngn',
+        label: 'Buy with naira',
+        // The coin they actually picked. This said XLM whatever was selected,
+        // so someone buying USDC was told mid-verification that they were
+        // buying XLM — at the one moment the app is asking them to trust it
+        // with their NIN.
+        summary: `Buying ${coin.toUpperCase()} with naira`,
+      },
     });
-  }, [router]);
+  }, [router, coin]);
+
+  // The way out of the mismatch above, and the only one.
+  //
+  // Support re-binds the reference on Linq's side; nothing reaches the app when
+  // that happens, so this is the person telling us it did. It drops both local
+  // verdicts and sends them back through verification, where Linq is the
+  // authority again. If support has not actually re-bound it, the NIN comes
+  // back spent and they land right back here — no worse off, and no loop,
+  // because getting here took a deliberate press.
+  const [retrying, setRetrying] = useState(false);
+  const retryVerification = useCallback(async () => {
+    setRetrying(true);
+    try {
+      await resetNairaVerification();
+      setKycMismatch(false);
+      goVerify();
+    } finally {
+      setRetrying(false);
+    }
+  }, [goVerify]);
 
 
   // ── Who we are, to Linq ────────────────────────────────────────────────────
@@ -189,13 +218,15 @@ export default function BuyWithNairaScreen() {
     if (mainnetOnly) return;
     setRateState('loading');
     try {
-      setRate(await getOnrampRate());
+      // Per coin: the two are different prices, so switching the toggle has to
+      // re-fetch rather than reuse whatever the other one quoted.
+      setRate(await getOnrampRate(coin));
       setRateState('ready');
     } catch {
       setRate(null);
       setRateState('failed');
     }
-  }, [mainnetOnly]);
+  }, [mainnetOnly, coin]);
 
   useEffect(() => {
     void loadRate();
@@ -256,7 +287,7 @@ export default function BuyWithNairaScreen() {
     try {
       // Re-read the rate immediately before locking it. The one on screen may
       // be a minute old and XLM floats; this is the number the order carries.
-      const fresh = await getOnrampRate();
+      const fresh = await getOnrampRate(coin);
       setRate(fresh);
       const created = await createOnrampOrder({
         customerRef,
@@ -359,6 +390,19 @@ export default function BuyWithNairaScreen() {
             <Text style={styles.hint}>
               Send that reference to support and we will re-bind it.
             </Text>
+            <Pressable
+              onPress={() => void retryVerification()}
+              disabled={retrying}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                retrying && styles.disabled,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.primaryText}>
+                {retrying ? 'Starting over…' : 'Support has re-bound it — try again'}
+              </Text>
+            </Pressable>
           </View>
         ) : null}
 

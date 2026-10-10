@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
+  getCustomerRef,
   isNairaKycMismatch,
   isNairaVerified,
+  resetNairaVerification,
   setNairaKycMismatch,
   setNairaVerified,
 } from '../onramp';
@@ -82,6 +84,65 @@ describe('naira verification state', () => {
       await setNairaKycMismatch(true);
       await setNairaKycMismatch(false);
       expect(await isNairaKycMismatch()).toBe(false);
+    });
+  });
+
+  /**
+   * The escape hatch, once support has re-bound the NIN on Linq's side.
+   *
+   * Nothing tells the app that happened, so the reset is driven from the
+   * device — which makes what it must *not* touch the important half.
+   */
+  describe('resetNairaVerification', () => {
+    it('clears both verdicts so Linq is asked again', async () => {
+      await setNairaVerified(true);
+      await setNairaKycMismatch(true);
+
+      await resetNairaVerification();
+
+      expect(await isNairaVerified()).toBe(false);
+      expect(await isNairaKycMismatch()).toBe(false);
+    });
+
+    it('keeps the customer reference, because a new one is a spent NIN', async () => {
+      await AsyncStorage.setItem('veil_ngn_customer_ref', 'veil_abc123def456');
+      await setNairaVerified(true);
+      await setNairaKycMismatch(true);
+
+      await resetNairaVerification();
+
+      expect(await getCustomerRef()).toBe('veil_abc123def456');
+    });
+
+    it('keeps the contact details, so the form is not retyped', async () => {
+      const details = JSON.stringify({
+        firstName: 'A',
+        lastName: 'B',
+        email: 'a@b.c',
+        phone: '080',
+      });
+      await AsyncStorage.setItem('veil_ngn_details', details);
+      await setNairaKycMismatch(true);
+
+      await resetNairaVerification();
+
+      expect(await AsyncStorage.getItem('veil_ngn_details')).toBe(details);
+    });
+
+    it('clears the flag on the legacy blob, which would otherwise undo the reset', async () => {
+      // `isNairaVerified` falls back to this blob. Leaving `verified` set here
+      // re-asserts it on the next read and the person never escapes.
+      await AsyncStorage.setItem(
+        'veil_ngn_customer',
+        JSON.stringify({ customerRef: 'veil_legacyref123', verified: true }),
+      );
+      await setNairaKycMismatch(true);
+
+      await resetNairaVerification();
+
+      expect(await isNairaVerified()).toBe(false);
+      // ...and the reference inside it survived the rewrite.
+      expect(await getCustomerRef()).toBe('veil_legacyref123');
     });
   });
 });

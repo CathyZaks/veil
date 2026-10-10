@@ -269,6 +269,54 @@ export async function isNairaKycMismatch(): Promise<boolean> {
   return (await AsyncStorage.getItem(KYC_MISMATCH_KEY).catch(() => null)) === 'true';
 }
 
+/**
+ * Let a stranded person ask Linq again, once support has re-bound the NIN.
+ *
+ * The mismatch above is terminal by design, and that is right while nothing has
+ * changed: re-entering a NIN that Linq has already spent only walks the loop
+ * again. But it is *not* right afterwards. Support re-binding the reference
+ * happens entirely on Linq's side, nothing tells the app, and there is no
+ * `GET /customers/:ref` to ask with — so without this the device stays stuck on
+ * an explanation that has stopped being true, forever.
+ *
+ * Clears exactly the two verdicts and nothing else:
+ *
+ *   - `customerRef` is **preserved**, which is the whole point. A new reference
+ *     is a new person to Linq and the NIN that would verify them is spent, so
+ *     regenerating it here would turn a recoverable state into the permanent
+ *     one this function exists to escape.
+ *   - The contact details stay too, so the form is not retyped.
+ *
+ * Verified is cleared as well as the mismatch, deliberately. Clearing only the
+ * mismatch would retry *order creation* against a reference Linq still has no
+ * KYC for; what support re-bound is the NIN, so the NIN has to be submitted
+ * again for the binding to land on this reference.
+ */
+export async function resetNairaVerification(): Promise<void> {
+  // Migrate the reference out of the legacy blob before that blob is written,
+  // because losing it is the one outcome here with no way back.
+  await getCustomerRef().catch(() => null);
+
+  // `isNairaVerified` falls back to this blob, so leaving its flag set would
+  // re-assert verified on the very next read and quietly undo the reset.
+  const legacy = await AsyncStorage.getItem(LEGACY_CUSTOMER_KEY).catch(() => null);
+  if (legacy) {
+    try {
+      const parsed = JSON.parse(legacy) as Record<string, unknown>;
+      if (parsed['verified'] === true) {
+        await AsyncStorage.setItem(
+          LEGACY_CUSTOMER_KEY,
+          JSON.stringify({ ...parsed, verified: false }),
+        ).catch(() => undefined);
+      }
+    } catch {
+      // Unparseable: `isNairaVerified` already reads that as unverified.
+    }
+  }
+
+  await AsyncStorage.multiRemove([VERIFIED_KEY, KYC_MISMATCH_KEY]).catch(() => undefined);
+}
+
 // ─── Customer ────────────────────────────────────────────────────────────────
 
 export interface NairaCustomer {
@@ -325,8 +373,17 @@ export type NairaCoin = 'xlm' | 'usdc';
  * number that gets locked into the order, and XLM floats. Fetch it immediately
  * before creating an order, never from a value held across screens for minutes.
  */
-export async function getOnrampRate(): Promise<number> {
-  const { rate } = await call<{ rate: number }>('/ngn/onramp/rate');
+export async function getOnrampRate(coin: NairaCoin): Promise<number> {
+  // The coin is not optional, here or on the wire.
+  //
+  // This used to take none and return naira per *dollar*, which both screens
+  // then divided naira by and called an amount of coin. Right for USDC by
+  // coincidence, wrong for XLM by the price of XLM — ₦1,000 bought 0.6 XLM
+  // instead of 3.6. wraith now answers per coin and refuses a request without
+  // one, so the mistake cannot be made silently again.
+  const { rate } = await call<{ rate: number }>(
+    `/ngn/onramp/rate?coin=${encodeURIComponent(coin)}`,
+  );
   if (!(rate > 0)) throw new Error('The service returned an unusable rate.');
   return rate;
 }
@@ -448,7 +505,10 @@ export function getBillStatus(customerRef: string, orderId: string): Promise<Bil
  */
 export async function isNairaAvailable(): Promise<boolean> {
   try {
-    await getOnrampRate();
+    // USDC on purpose. The question is whether the rails are open at all, and
+    // the XLM rate additionally depends on a live order book — so asking for
+    // it would hide the whole naira entry point whenever pricing XLM failed.
+    await getOnrampRate('usdc');
     return true;
   } catch {
     return false;

@@ -161,13 +161,15 @@ export default function AirtimeScreen() {
     if (mainnetOnly) return;
     setRateState('loading');
     try {
-      setRate(await getOnrampRate());
+      // Per coin: the two are different prices, so switching the toggle has to
+      // re-fetch rather than reuse whatever the other one quoted.
+      setRate(await getOnrampRate(coin));
       setRateState('ready');
     } catch {
       setRate(null);
       setRateState('failed');
     }
-  }, [mainnetOnly]);
+  }, [mainnetOnly, coin]);
 
   useEffect(() => {
     void loadRate();
@@ -183,10 +185,13 @@ export default function AirtimeScreen() {
         const s = await getBillStatus(customerRef, orderId);
         if (/complete|success|delivered/i.test(s.status)) setStep('done');
         if (/fail|refund|revers/i.test(s.status)) setStep('failed');
-      } catch {
-        // Silent. A failed poll is not something the user can act on, and the
-        // payment has already left — saying "error" here would read as if it
-        // had not.
+      } catch (err) {
+        // Silent *to the user*: a failed poll is nothing they can act on, and
+        // the payment has already left, so an error here would read as if it
+        // had not. But silent to us as well is how a top-up that landed sat on
+        // a spinner with no way to find out why — the status was fine, the
+        // request never got there, and nothing anywhere said so.
+        console.warn('[airtime] status poll failed:', errorMessage(err));
       }
     };
     void check();
