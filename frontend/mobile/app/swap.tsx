@@ -332,13 +332,18 @@ export default function SwapScreen() {
   }
 
   // ── Execution — with the impact threshold enforced ─────────────────────────
-  async function handleExecute() {
+  async function handleExecute(options?: { acceptHighImpact?: boolean }) {
     setExecError(null);
 
-    // Last line of defence: the review screen hides the confirm control for a
-    // refused order, but the threshold is re-checked here so no other entry
-    // point can get past it.
-    if (honestQuote?.shouldRefuse) {
+    // Last line of defence: the threshold is re-checked here so no other
+    // entry point can get past it by accident.
+    //
+    // `acceptHighImpact` is the one way through, and only the slider on the
+    // review screen passes it — after showing the figure in its own label.
+    // Without this the slider was theatre: it let the user accept a cost the
+    // screen had just explained, then bounced them back here with the same
+    // refusal and nothing signed.
+    if (honestQuote?.shouldRefuse && !options?.acceptHighImpact) {
       setExecError(
         honestQuote.refusalReason ??
           'This order exceeds the price-impact threshold, so it was not submitted.',
@@ -499,6 +504,10 @@ export default function SwapScreen() {
     setQuote(null);
     setHonestQuote(null);
     setQuoteError(null);
+    // Belongs to the pair that produced it. Left behind, a refusal from the
+    // previous asset sat on the form after switching and read as the new
+    // pair being refused too.
+    setExecError(null);
   }
 
   function flip() {
@@ -507,6 +516,7 @@ export default function SwapScreen() {
     setQuote(null);
     setHonestQuote(null);
     setQuoteError(null);
+    setExecError(null);
   }
 
   const hasAmount = Number(amountIn) > 0;
@@ -604,7 +614,7 @@ export default function SwapScreen() {
             <View style={styles.footerStack}>
               <SlideToConfirm
                 label={`Slide to accept ${(honestQuote.impactAnalysis.totalImpactPct ?? 0).toFixed(2)}% cost`}
-                onConfirm={handleExecute}
+                onConfirm={() => handleExecute({ acceptHighImpact: true })}
               />
               <Pressable onPress={() => setStep('form')} style={styles.secondaryLink}>
                 <Text style={styles.secondaryLinkText}>Change amount</Text>

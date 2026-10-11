@@ -32,7 +32,7 @@ import {
 } from 'react-native';
 
 import { Button, Card, Screen } from '../../components/ui';
-import { KeyboardStickyView } from 'react-native-keyboard-controller';
+import { KeyboardStickyView, useKeyboardState } from 'react-native-keyboard-controller';
 
 import { ArrowUpIcon, BackIcon } from '../../components/icons';
 import { VeilLogo } from '../../components/VeilLogo';
@@ -81,6 +81,12 @@ const SUGGESTIONS = [
 export default function AgentScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // How far the composer has been lifted. `KeyboardStickyView` translates it
+  // over whatever is behind it rather than making room, so the thread has to
+  // give back exactly the same distance — otherwise the composer sits on top
+  // of the conversation it belongs to.
+  const keyboardHeight = useKeyboardState((state) => state.height);
+  const liftedBy = Math.max(0, keyboardHeight - insets.bottom);
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   // Subscribed rather than read once at module load: the network is a runtime
@@ -323,7 +329,7 @@ export default function AgentScreen() {
         <ScrollView showsVerticalScrollIndicator={false}
           ref={scrollRef}
           style={styles.flex}
-          contentContainerStyle={styles.thread}
+          contentContainerStyle={[styles.thread, { paddingBottom: 16 + liftedBy }]}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
           keyboardShouldPersistTaps="handled"
         >

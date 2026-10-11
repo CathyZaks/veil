@@ -59,7 +59,8 @@ import { fontFamily } from '../theme/typography';
 import { errorMessage } from '../lib/errorMessage';
 import { getAssetIssuer } from '../lib/assets';
 import { getFeePayerAddress } from '../lib/activity';
-import { NotEnoughToSend, spendAsset } from '../lib/spendAsset';
+import { NotEnoughToSend, previewSpendFee, spendAsset } from '../lib/spendAsset';
+import type { PlatformFee } from '../lib/platformFee';
 import {
   getBillStatus,
   getCustomerRef,
@@ -129,6 +130,12 @@ export default function AirtimeScreen() {
 
   const [orderId, setOrderId] = useState<string | null>(null);
   const [payHash, setPayHash] = useState<string | null>(null);
+  // Shown before the passkey, never after. A charge a user only finds in
+  // their history is a surprise, not a fee — and `previewSpendFee` decides it
+  // exactly the way `spendAsset` will, so the number shown is the number
+  // taken. Null when nothing will be charged, which is the usual case: money
+  // spent from the Veil smart wallet is free.
+  const [veilFee, setVeilFee] = useState<PlatformFee | null>(null);
   const [spent, setSpent] = useState<number | null>(null);
   const [waitingForPasskey, setWaitingForPasskey] = useState(false);
 
@@ -205,6 +212,24 @@ export default function AirtimeScreen() {
   const ngn = Number(amountNGN.replace(/[^\d]/g, '')) || 0;
   const code = coin.toUpperCase();
   const cost = rate && ngn > 0 ? ngn / rate : 0;
+
+  // Only on the confirm step: it reads two balances, and doing that on every
+  // keystroke of the amount field would be a request per digit.
+  useEffect(() => {
+    if (step !== 'confirm' || cost <= 0) return;
+    let cancelled = false;
+    void (async () => {
+      const issuer = coin === 'usdc' ? getAssetIssuer('USDC', 'mainnet') : null;
+      const fee = await previewSpendFee({
+        amount: String(cost),
+        ...(issuer ? { asset: { code: 'USDC', issuer } } : {}),
+      }).catch(() => null);
+      if (!cancelled) setVeilFee(fee);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, cost, coin]);
   const phoneDigits = phone.replace(/\D/g, '');
 
   /**
@@ -490,6 +515,14 @@ export default function AirtimeScreen() {
                 <Text style={styles.rowLabel}>Network fee</Text>
                 <Text style={styles.rowValue}>Sponsored</Text>
               </View>
+              {veilFee ? (
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>Veil fee</Text>
+                  <Text style={styles.rowValue}>
+                    {veilFee.amount} {veilFee.assetCode}
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.noteCard}>

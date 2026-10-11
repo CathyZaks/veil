@@ -47,7 +47,8 @@ import { getFeePayerAddress } from '../lib/activity';
 import { getWalletAddress } from '../lib/walletStore';
 import { loadHoldings, type Holding } from '../lib/holdings';
 import { errorMessage } from '../lib/errorMessage';
-import { NotEnoughToSend, spendAsset } from '../lib/spendAsset';
+import { NotEnoughToSend, previewSpendFee, spendAsset } from '../lib/spendAsset';
+import type { PlatformFee } from '../lib/platformFee';
 import { useWallet } from '../components/WalletProvider';
 import { BankMark } from '../components/BankMark';
 import { CloseIcon, SearchIcon } from '../components/icons';
@@ -321,6 +322,26 @@ export default function CashOutScreen() {
 
   const ngn = Number(amountNGN.replace(/,/g, ''));
   const estimatedUsdc = rate && ngn > 0 ? ngn / rate : null;
+
+  // Disclosed on review, before the passkey. Decided by the same function
+  // `spendAsset` uses, so what is shown is what is taken. Null means nothing
+  // will be charged — the usual case, since paying from the Veil smart wallet
+  // is free and only the spending account carries a fee.
+  const [veilFee, setVeilFee] = useState<PlatformFee | null>(null);
+  useEffect(() => {
+    if (step !== 'review' || !estimatedUsdc) return;
+    let cancelled = false;
+    void (async () => {
+      const fee = await previewSpendFee({
+        amount: String(estimatedUsdc),
+        asset: { code: 'USDC', issuer: USDC_MAINNET_ISSUER },
+      }).catch(() => null);
+      if (!cancelled) setVeilFee(fee);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, estimatedUsdc]);
   // The most naira this balance can produce, floored to whole naira so the
   // suggestion never asks for more USDC than the wallet holds.
   const maxNGN = rate && usdcBalance ? Math.floor(usdcBalance * rate) : null;
@@ -817,6 +838,9 @@ export default function CashOutScreen() {
               {/* True, and worth saying: the fee payer covers it, so the amount
                   the user sends is the amount that counts. */}
               <Row label="Network fee" value="Under 0.01 XLM" />
+              {veilFee ? (
+                <Row label="Veil fee" value={`${veilFee.amount} ${veilFee.assetCode}`} />
+              ) : null}
             </View>
 
             <Text style={styles.hint}>
