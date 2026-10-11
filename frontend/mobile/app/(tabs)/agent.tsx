@@ -19,10 +19,13 @@ import { Horizon, Keypair, TransactionBuilder, type Transaction } from '@stellar
  */
 
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -32,7 +35,7 @@ import {
 } from 'react-native';
 
 import { Button, Card, Screen } from '../../components/ui';
-import { BackIcon } from '../../components/icons';
+import { ArrowUpIcon, BackIcon } from '../../components/icons';
 import { VeilLogo } from '../../components/VeilLogo';
 import {
   describeSubmissionError,
@@ -78,6 +81,23 @@ const SUGGESTIONS = [
 
 export default function AgentScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  // Android only; on iOS `KeyboardAvoidingView` already does it.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', (e) =>
+      setKeyboardHeight(e.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  // The shell already insets the bottom safe area, so padding by the full
+  // keyboard height would lift the composer that much too far.
+  const keyboardPad = keyboardHeight > 0 ? Math.max(0, keyboardHeight - insets.bottom) : 0;
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   // Subscribed rather than read once at module load: the network is a runtime
@@ -285,12 +305,19 @@ export default function AgentScreen() {
 
   return (
     <Screen>
-      {/* `padding` on Android too. It used to be iOS-only, on the usual
-          reasoning that Android resizes the window itself — but this app sets
-          `edgeToEdgeEnabled`, and under edge-to-edge Android stops doing that,
-          so the keyboard simply covered the composer and you could not see
-          what you were typing. */}
-      <KeyboardAvoidingView style={styles.flex} behavior="padding">
+      {/* Measured, not delegated.
+          `KeyboardAvoidingView` with `behavior="padding"` did not move this
+          screen at all: under `edgeToEdgeEnabled` the window extends behind
+          the system bars and Android stops resizing it, so there is nothing
+          for the view to react to and the keyboard sat straight over the
+          composer. Listening for the keyboard and padding by its real height
+          is the one approach that does not depend on the window changing
+          size. iOS does resize, so it keeps the view and gets no manual
+          padding — otherwise the composer would lift twice. */}
+      <KeyboardAvoidingView
+        style={[styles.flex, { paddingBottom: keyboardPad }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         {/* With no tab bar there is no other way off this screen, so the
             chevron is load-bearing rather than decoration. Clear appears only
             when there is something to clear. */}
@@ -388,7 +415,11 @@ export default function AgentScreen() {
                 pressed && styles.sendPressed,
               ]}
             >
-              <Text style={styles.sendLabel}>Send</Text>
+              <ArrowUpIcon
+                size={20}
+                color={!input.trim() || isThinking ? colors.textFaint : colors.onAccent}
+                strokeWidth={2.4}
+              />
             </Pressable>
           </View>
         </View>
@@ -827,21 +858,19 @@ const createStyles = (colors: ThemeColors) =>
       paddingVertical: 12,
       paddingHorizontal: 18,
     },
+    // A circle sized to the glyph, sitting level with a one-line composer.
     send: {
-      borderRadius: 14,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       backgroundColor: colors.accent,
-      paddingVertical: 12,
-      paddingHorizontal: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     sendDisabled: {
       opacity: 0.4,
     },
     sendPressed: {
       transform: [{ scale: 0.98 }],
-    },
-    sendLabel: {
-      fontFamily: fontFamily.bodySemiBold,
-      fontSize: 14,
-      color: colors.onAccent,
     },
   });
