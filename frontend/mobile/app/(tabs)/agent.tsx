@@ -320,8 +320,15 @@ export default function AgentScreen() {
           ) : null}
         </View>
 
+        {/* `flex: 1` here *and* `flexGrow: 1` on the content, which have to go
+            together. The content grows so the empty state can centre in the
+            space; the view is bounded so the thread cannot grow past its
+            share and shove the composer off the bottom of the screen. With
+            only the second, the keyboard looked like it was still covering
+            the composer when in fact the composer had been pushed under it. */}
         <ScrollView showsVerticalScrollIndicator={false}
           ref={scrollRef}
+          style={styles.flex}
           contentContainerStyle={styles.thread}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
           keyboardShouldPersistTaps="handled"

@@ -55,7 +55,16 @@ export function PreConfirmationPanel({ data, colors }: Props) {
           : '#34C759';
 
   return (
-    <ScrollView style={styles.container} scrollEnabled={false}>
+    // Scrollable, because it is the only scrollable thing on the review
+    // screen and its host is `flex: 1`. With scrolling off, anything past the
+    // fold was clipped and unreachable — on a swap that tripped the impact
+    // guard the Book depth row was cut in half and the rest simply gone,
+    // which is the moment a user most needs to read the numbers.
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Trade Summary</Text>
         <View style={styles.row}>
@@ -152,6 +161,9 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     container: {
       marginBottom: 16,
+    },
+    content: {
+      paddingBottom: 8,
     },
     section: {
       marginBottom: 20,
