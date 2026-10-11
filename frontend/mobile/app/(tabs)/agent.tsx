@@ -19,6 +19,7 @@ import { Horizon, Keypair, TransactionBuilder, type Transaction } from '@stellar
  */
 
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -31,7 +32,7 @@ import {
 } from 'react-native';
 
 import { Button, Card, Screen } from '../../components/ui';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 
 import { ArrowUpIcon, BackIcon } from '../../components/icons';
 import { VeilLogo } from '../../components/VeilLogo';
@@ -79,6 +80,7 @@ const SUGGESTIONS = [
 
 export default function AgentScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   // Subscribed rather than read once at module load: the network is a runtime
@@ -286,15 +288,7 @@ export default function AgentScreen() {
 
   return (
     <Screen>
-      {/* From `react-native-keyboard-controller`, not React Native.
-          Two attempts failed before this one and both failed the same way:
-          RN's own KeyboardAvoidingView works by noticing the window shrink,
-          and under `edgeToEdgeEnabled` Android stops shrinking the window, so
-          it has nothing to notice. Reading the keyboard height by hand was a
-          workaround for that and still left the composer covered. This
-          version reads the platform's keyboard inset directly, which is the
-          thing that remains true when the window no longer changes size. */}
-      <KeyboardAvoidingView style={styles.flex} behavior="padding">
+      <View style={styles.flex}>
         {/* With no tab bar there is no other way off this screen, so the
             chevron is load-bearing rather than decoration. Clear appears only
             when there is something to clear. */}
@@ -362,6 +356,19 @@ export default function AgentScreen() {
           )}
         </ScrollView>
 
+        {/* Attempt five, and the first that does not depend on the layout
+            noticing anything. `KeyboardAvoidingView` — React Native's and the
+            library's — works by the window resizing or by padding a
+            container; under edge-to-edge the window does not resize, and
+            every variation of padding left the composer under the keyboard.
+            `KeyboardStickyView` translates the view itself by the measured
+            keyboard height, so there is no layout pass to get wrong.
+
+            `opened: insets.bottom` cancels a double count: the shell already
+            holds the composer that far off the bottom of the screen, and the
+            keyboard covers that strip too, so lifting by the full keyboard
+            height would leave a gap exactly one inset tall. */}
+        <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
         <View style={styles.composer}>
           <ScrollView showsVerticalScrollIndicator={false} horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
             {SUGGESTIONS.map((suggestion) => (
@@ -413,7 +420,8 @@ export default function AgentScreen() {
             </View>
           </View>
         </View>
-      </KeyboardAvoidingView>
+        </KeyboardStickyView>
+      </View>
     </Screen>
   );
 }

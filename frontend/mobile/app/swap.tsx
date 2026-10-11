@@ -2,7 +2,7 @@ import { errorMessage } from '../lib/errorMessage';
 import { Keypair } from '@stellar/stellar-sdk';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTheme } from '../hooks/useTheme';
@@ -549,7 +549,16 @@ export default function SwapScreen() {
             onBack={() => { setStep('form'); }} 
           />
           
-          <View style={styles.reviewContent}>
+          {/* One scrolling page. The panel used to scroll inside a fixed
+              `flex: 1` box with the footer pinned under it, which is what
+              split the screen in two: rows were sliced at the box's edges and
+              a dead white band sat below short content. The page scrolls, the
+              action stays put. */}
+          <ScrollView
+            style={styles.reviewContent}
+            contentContainerStyle={styles.reviewScroll}
+            showsVerticalScrollIndicator={false}
+          >
             <PreConfirmationPanel
               data={{
                 tokenIn: tokenIn.code,
@@ -560,7 +569,11 @@ export default function SwapScreen() {
                 // The quote's own price impact is always real. The spread and
                 // the total are null unless they were actually measured, so the
                 // panel shows "Not measured" rather than a confident 0.00%.
-                priceImpactPct: analysis?.priceImpactPct ?? quote.priceImpact * 100,
+                // No *100. `quote.priceImpact` is the provider's
+                // `priceImpactPct`, already a percentage — the same double
+                // conversion that turned 0.18% into 18.00% lived here too,
+                // on the path taken when the spread could not be measured.
+                priceImpactPct: analysis?.priceImpactPct ?? quote.priceImpact,
                 spreadPct: analysis?.spreadPct ?? null,
                 totalImpactPct: analysis?.totalImpactPct ?? null,
                 disclosure:
@@ -576,18 +589,25 @@ export default function SwapScreen() {
               }}
               colors={colors}
             />
-          </View>
-
-          <View style={styles.spacer} />
-
-          {honestQuote?.shouldRefuse ? (
-            <View>
+            {honestQuote?.shouldRefuse ? (
               <Text style={styles.refusalBanner}>{honestQuote.refusalReason}</Text>
-              <Pressable
-                style={[styles.primaryBtn, styles.disabled]}
-                onPress={() => setStep('form')}
-              >
-                <Text style={styles.primaryText}>Back to form</Text>
+            ) : null}
+          </ScrollView>
+
+          {/* Costly is not the same as forbidden.
+              A thin pair can cost more than the threshold and still be the
+              trade someone wants — refusing outright left them with a dead
+              screen and no way to act on numbers we had already shown them.
+              The figure goes in the label, so accepting it is deliberate and
+              names the price, and the slide gesture is the acknowledgement. */}
+          {honestQuote?.shouldRefuse ? (
+            <View style={styles.footerStack}>
+              <SlideToConfirm
+                label={`Slide to accept ${(honestQuote.impactAnalysis.totalImpactPct ?? 0).toFixed(2)}% cost`}
+                onConfirm={handleExecute}
+              />
+              <Pressable onPress={() => setStep('form')} style={styles.secondaryLink}>
+                <Text style={styles.secondaryLinkText}>Change amount</Text>
               </Pressable>
             </View>
           ) : (
@@ -919,6 +939,14 @@ const createStyles = (colors: ThemeColors) =>
     sheetName: { color: colors.textPrimary, fontFamily: fontFamily.body, fontSize: 15 },
     sheetIssuer: { color: colors.textFaint, fontFamily: fontFamily.body, fontSize: 11.5 },
     reviewContent: { flex: 1, marginTop: 12 },
+    reviewScroll: { paddingBottom: 16 },
+    footerStack: { gap: 10 },
+    secondaryLink: { alignItems: 'center', paddingVertical: 10 },
+    secondaryLinkText: {
+      fontFamily: fontFamily.bodyMedium,
+      fontSize: 14,
+      color: colors.textMuted,
+    },
     refusalBanner: {
       color: colors.danger,
       fontFamily: fontFamily.body,

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View, ScrollView } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { ThemeColors } from '../lib/theme';
 
 export interface PreConfirmationData {
@@ -55,16 +55,11 @@ export function PreConfirmationPanel({ data, colors }: Props) {
           : '#34C759';
 
   return (
-    // Scrollable, because it is the only scrollable thing on the review
-    // screen and its host is `flex: 1`. With scrolling off, anything past the
-    // fold was clipped and unreachable — on a swap that tripped the impact
-    // guard the Book depth row was cut in half and the rest simply gone,
-    // which is the moment a user most needs to read the numbers.
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
+    // A plain View. This used to be a ScrollView, first disabled (so it
+    // clipped) and then enabled (so the page read as two panes with rows
+    // sliced at the seam). The review screen scrolls as one page instead,
+    // and a panel that only lays out content has no business owning scroll.
+    <View style={styles.container}>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Trade Summary</Text>
         <View style={styles.row}>
@@ -153,7 +148,7 @@ export function PreConfirmationPanel({ data, colors }: Props) {
           </Text>
         </View>
       )}
-    </ScrollView>
+    </View>
   );
 }
 
