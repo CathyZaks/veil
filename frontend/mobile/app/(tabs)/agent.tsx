@@ -19,13 +19,9 @@ import { Horizon, Keypair, TransactionBuilder, type Transaction } from '@stellar
  */
 
 import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -35,6 +31,8 @@ import {
 } from 'react-native';
 
 import { Button, Card, Screen } from '../../components/ui';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+
 import { ArrowUpIcon, BackIcon } from '../../components/icons';
 import { VeilLogo } from '../../components/VeilLogo';
 import {
@@ -81,23 +79,6 @@ const SUGGESTIONS = [
 
 export default function AgentScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  // Android only; on iOS `KeyboardAvoidingView` already does it.
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    const show = Keyboard.addListener('keyboardDidShow', (e) =>
-      setKeyboardHeight(e.endCoordinates.height),
-    );
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-  // The shell already insets the bottom safe area, so padding by the full
-  // keyboard height would lift the composer that much too far.
-  const keyboardPad = keyboardHeight > 0 ? Math.max(0, keyboardHeight - insets.bottom) : 0;
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   // Subscribed rather than read once at module load: the network is a runtime
@@ -305,19 +286,15 @@ export default function AgentScreen() {
 
   return (
     <Screen>
-      {/* Measured, not delegated.
-          `KeyboardAvoidingView` with `behavior="padding"` did not move this
-          screen at all: under `edgeToEdgeEnabled` the window extends behind
-          the system bars and Android stops resizing it, so there is nothing
-          for the view to react to and the keyboard sat straight over the
-          composer. Listening for the keyboard and padding by its real height
-          is the one approach that does not depend on the window changing
-          size. iOS does resize, so it keeps the view and gets no manual
-          padding — otherwise the composer would lift twice. */}
-      <KeyboardAvoidingView
-        style={[styles.flex, { paddingBottom: keyboardPad }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      {/* From `react-native-keyboard-controller`, not React Native.
+          Two attempts failed before this one and both failed the same way:
+          RN's own KeyboardAvoidingView works by noticing the window shrink,
+          and under `edgeToEdgeEnabled` Android stops shrinking the window, so
+          it has nothing to notice. Reading the keyboard height by hand was a
+          workaround for that and still left the composer covered. This
+          version reads the platform's keyboard inset directly, which is the
+          thing that remains true when the window no longer changes size. */}
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
         {/* With no tab bar there is no other way off this screen, so the
             chevron is load-bearing rather than decoration. Clear appears only
             when there is something to clear. */}
@@ -392,7 +369,11 @@ export default function AgentScreen() {
             ))}
           </ScrollView>
 
-          <View style={styles.inputRow}>
+          {/* One card, not a pill with a button parked beside it: the text
+              sits on top and the controls sit under it, inside the same
+              surface. That is what makes the reference read as a single
+              object you are writing into. */}
+          <View style={styles.inputCard}>
             <TextInput
               style={styles.input}
               placeholder="Ask about balances, rates, or a payment"
@@ -404,23 +385,25 @@ export default function AgentScreen() {
               returnKeyType="send"
               multiline
             />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Send message"
-              onPress={handleSend}
-              disabled={!input.trim() || isThinking}
-              style={({ pressed }) => [
-                styles.send,
-                (!input.trim() || isThinking) && styles.sendDisabled,
-                pressed && styles.sendPressed,
-              ]}
-            >
-              <ArrowUpIcon
-                size={20}
-                color={!input.trim() || isThinking ? colors.textFaint : colors.onAccent}
-                strokeWidth={2.4}
-              />
-            </Pressable>
+            <View style={styles.inputActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Send message"
+                onPress={handleSend}
+                disabled={!input.trim() || isThinking}
+                style={({ pressed }) => [
+                  styles.send,
+                  (!input.trim() || isThinking) && styles.sendDisabled,
+                  pressed && styles.sendPressed,
+                ]}
+              >
+                <ArrowUpIcon
+                  size={20}
+                  color={!input.trim() || isThinking ? colors.textFaint : colors.onAccent}
+                  strokeWidth={2.6}
+                />
+              </Pressable>
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -840,35 +823,47 @@ const createStyles = (colors: ThemeColors) =>
       fontSize: 12,
       color: colors.textMuted,
     },
-    inputRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-end',
-      gap: 10,
-    },
-    input: {
-      flex: 1,
-      maxHeight: 120,
-      fontFamily: fontFamily.body,
-      fontSize: 15,
-      color: colors.textPrimary,
+    // The whole composer is one surface. The reference puts its controls
+    // inside the same rounded card as the text, which is what stops the send
+    // button reading as a separate thing sitting next to the field.
+    inputCard: {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 24,
-      paddingVertical: 12,
-      paddingHorizontal: 18,
+      borderRadius: 26,
+      paddingTop: 14,
+      paddingBottom: 10,
+      paddingHorizontal: 16,
+      gap: 6,
+    },
+    inputActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+    },
+    input: {
+      maxHeight: 120,
+      fontFamily: fontFamily.body,
+      fontSize: 16,
+      lineHeight: 22,
+      color: colors.textPrimary,
+      padding: 0,
     },
     // A circle sized to the glyph, sitting level with a one-line composer.
     send: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+      width: 38,
+      height: 38,
+      borderRadius: 19,
       backgroundColor: colors.accent,
       alignItems: 'center',
       justifyContent: 'center',
     },
+    // A different fill, not a faded one. `opacity: 0.4` over the brand yellow
+    // produced the washed-out disc in the screenshot — it read as a broken
+    // enabled button rather than a disabled one, because a dimmed accent is
+    // still unmistakably the accent.
     sendDisabled: {
-      opacity: 0.4,
+      backgroundColor: colors.surfaceMd,
     },
     sendPressed: {
       transform: [{ scale: 0.98 }],
