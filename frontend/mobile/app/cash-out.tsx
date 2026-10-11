@@ -224,7 +224,14 @@ export default function CashOutScreen() {
         setRate(r.rate);
         setRateState('ready');
       })
-      .catch(() => setRateState('failed'));
+      .catch((err) => {
+        // The screen says one thing for every cause, which is right for the
+        // user and useless for us: a preview build with no backend URL
+        // configured threw "No backend configured" instantly and read on
+        // screen as the rate service being unreachable.
+        console.warn('[cash-out] rate fetch failed:', errorMessage(err));
+        setRateState('failed');
+      });
   }, []);
 
   useEffect(() => {
