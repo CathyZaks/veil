@@ -280,3 +280,54 @@ export async function discoverWithPrf(
     throw error;
   }
 }
+
+/** The pieces of an assertion that let a caller recover the signing public key. */
+export type RecoveryAssertion = {
+  /** The credential that actually signed (the user may pick in the sheet). */
+  credentialId: string;
+  /** Raw P-256 ECDSA signature (64 bytes, r‖s, low-S). */
+  signature: Uint8Array;
+  authData: Uint8Array;
+  clientDataJSON: Uint8Array;
+};
+
+/**
+ * One assertion over a fresh random challenge, for public-key recovery.
+ *
+ * Targeted at `credentialId` when the device still has it, so the user is asked
+ * about their own wallet rather than shown a picker. With no stored id it falls
+ * back to a discoverable assertion — the wallet whose key we are trying to
+ * recover may be exactly the one whose credential id went missing.
+ *
+ * The challenge is random because nothing on chain consumes this signature; it
+ * exists only so the authenticator reveals, by signing, which key it holds.
+ */
+export async function assertForKeyRecovery(
+  credentialId: string | null,
+): Promise<RecoveryAssertion | null> {
+  try {
+    const assertion = await passkeys().get({
+      challenge: uint8ArrayToBase64Url(Crypto.getRandomBytes(32)),
+      rpId: getRelyingPartyId(),
+      ...(credentialId ? { allowCredentials: [{ id: credentialId, type: 'public-key' as const }] } : {}),
+      userVerification: 'required',
+      timeout: 60_000,
+    });
+    if (!assertion) return null;
+    const picked =
+      (assertion as { id?: string; rawId?: string }).id ??
+      (assertion as { id?: string; rawId?: string }).rawId ??
+      credentialId;
+    if (!picked) return null;
+    return {
+      credentialId: picked,
+      signature: derToRawSignature(base64UrlToUint8Array(assertion.response.signature)),
+      authData: base64UrlToUint8Array(assertion.response.authenticatorData),
+      clientDataJSON: base64UrlToUint8Array(assertion.response.clientDataJSON),
+    };
+  } catch (error: unknown) {
+    if (isUserRejection(error)) return null;
+    if (isCredentialNotFound(error)) throw new Error(CREDENTIAL_ORPHANED_MESSAGE);
+    throw error;
+  }
+}
