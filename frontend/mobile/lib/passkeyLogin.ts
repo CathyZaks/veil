@@ -7,6 +7,7 @@ import { recordFeePayerSource } from './feePayerSource';
 import { discoverWithPrf, nativePrfEvaluator, type DiscoveredPasskey } from './passkey';
 import { SDK_ADDRESS, SDK_KEY_ID, SDK_PUBLIC_KEY, getSdkItem, setSdkItems } from './sdkStorage';
 import { readSigners, WalletContractNotFoundError, type WalletSigner } from './signers';
+import { recoverWalletFromAssertion } from './recoverPasskeyKey';
 import { readBreadcrumbs, writeBreadcrumbs } from './walletBreadcrumbs';
 import { getSignerSecret, getWalletAddress, setPasskeyCredential, setPasskeyId, setSignerSecret, setWalletAddress } from './walletStore';
 import { hexToUint8Array } from './webauthn';
@@ -100,42 +101,58 @@ export async function loginWithPasskey(): Promise<LoginResult> {
   // ── Fresh-device recovery ──────────────────────────────────────────────────
   const picked = await discoverWithPrf(FEE_PAYER_PRF_SALT);
   if (!picked) throw new Error('Passkey sign-in was cancelled.');
-  if (!picked.prf || picked.prf.length < 32) {
+
+  // The PRF fee-payer is preferred when the passkey offers it: it is the account
+  // the wallet has been paying fees from, so recovering it keeps that balance
+  // and the breadcrumbs reachable. It is no longer REQUIRED, because the wallet
+  // address does not actually depend on it.
+  const prfSeed = picked.prf && picked.prf.length >= 32 ? picked.prf.subarray(0, 32) : null;
+  const prfFeePayer = prfSeed ? Keypair.fromRawEd25519Seed(Buffer.from(prfSeed)) : null;
+  const crumbs = prfFeePayer ? await readBreadcrumbs(prfFeePayer.publicKey()) : null;
+
+  // Breadcrumbs are the cheap path — one Horizon read and the wallet is known.
+  // Without them the assertion itself still identifies the wallet, which is what
+  // makes a wallet created before any of this was recorded signable-into at all.
+  const resolved = crumbs
+    ? { address: crumbs.walletAddress, publicKey: crumbs.publicKeyBytes }
+    : await recoverWalletFromAssertion(picked);
+
+  if (!resolved) {
     throw new Error(
-      "This passkey didn't return a PRF secret, so the wallet can't be re-derived from it on this device. " +
-        'Use the recovery-server flow instead.',
+      'No wallet on this network could be found for that passkey. If you know the wallet address, ' +
+        'sign in with it instead.',
     );
   }
 
-  const feePayer = Keypair.fromRawEd25519Seed(Buffer.from(picked.prf.subarray(0, 32)));
-  const crumbs = await readBreadcrumbs(feePayer.publicKey());
-  if (!crumbs) {
-    throw new Error(
-      'No wallet is linked to this passkey on this network. Wallets created before sign-in support ' +
-        'publish their record the next time their home screen opens on the device that holds them — ' +
-        'open the wallet there once, then sign in here.',
-    );
-  }
+  // A random fee-payer cannot be re-derived anywhere, so it is a last resort —
+  // but it is better than refusing the sign-in, since the smart wallet's own
+  // balance belongs to the passkey and only needs some gas to move.
+  const feePayer = prfFeePayer ?? Keypair.random();
 
   // Persist to the app's secure store…
   await Promise.all([
-    setWalletAddress(crumbs.walletAddress),
+    setWalletAddress(resolved.address),
     setSignerSecret(feePayer.secret()),
-    recordFeePayerSource(feePayer.publicKey(), 'prf'),
-    crumbs.publicKeyBytes
-      ? setPasskeyCredential(picked.credentialId, toHex(crumbs.publicKeyBytes))
+    recordFeePayerSource(feePayer.publicKey(), prfFeePayer ? 'prf' : 'random'),
+    resolved.publicKey
+      ? setPasskeyCredential(picked.credentialId, toHex(resolved.publicKey))
       : setPasskeyId(picked.credentialId),
   ]);
 
+  // Record what was just learned, so the next device takes the cheap path.
+  void writeBreadcrumbs(feePayer.secret(), resolved.address, resolved.publicKey ?? null).catch(
+    () => undefined,
+  );
+
   // …and mirror the SDK's storage so its login()/signAuthEntry() work too.
-  const sdkWrites: Array<[string, string]> = [
-    [SDK_ADDRESS, crumbs.walletAddress],
+  const sdkWrites: [string, string][] = [
+    [SDK_ADDRESS, resolved.address],
     [SDK_KEY_ID, picked.credentialId],
   ];
-  if (crumbs.publicKeyBytes) sdkWrites.push([SDK_PUBLIC_KEY, toHex(crumbs.publicKeyBytes)]);
+  if (resolved.publicKey) sdkWrites.push([SDK_PUBLIC_KEY, toHex(resolved.publicKey)]);
   await setSdkItems(sdkWrites);
 
-  return { address: crumbs.walletAddress, source: 'recovered' };
+  return { address: resolved.address, source: 'recovered' };
 }
 
 /**

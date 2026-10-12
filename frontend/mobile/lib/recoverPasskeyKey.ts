@@ -31,7 +31,8 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { Buffer } from 'buffer';
 import { computeWalletAddress } from '@veil/sdk';
 
-import { getFeePayerAddress } from './activity';
+import { fetchContractXlm, getFeePayerAddress } from './activity';
+import { isWalletDeployed } from './contractSpend';
 import { getNetwork } from './network';
 import { assertForKeyRecovery, type RecoveryAssertion } from './passkey';
 import { SDK_ADDRESS, SDK_KEY_ID, SDK_PUBLIC_KEY, setSdkItems } from './sdkStorage';
@@ -129,4 +130,65 @@ async function writeSdkMirror(address: string, credentialId: string, publicKeyHe
     [SDK_KEY_ID, credentialId],
     [SDK_PUBLIC_KEY, publicKeyHex],
   ]);
+}
+
+/**
+ * Which wallet a discoverable assertion belongs to, with nothing else to go on.
+ *
+ * "Sign in with your passkey on a new phone" used to need two things the passkey
+ * itself does not carry: a PRF output, to re-derive the fee-payer whose account
+ * holds the breadcrumbs, and the breadcrumbs. Both were written at creation, so
+ * a wallet created when either step failed could not be signed into anywhere
+ * else — the money was still the passkey's, but nothing could find its address.
+ *
+ * It turns out neither is necessary. The wallet address is a pure function of
+ * the passkey's public key, and the public key comes back out of any signature.
+ * So the passkey alone is enough, which is what "no seed phrase, no backup" was
+ * supposed to mean in the first place.
+ *
+ * The one wrinkle is that recovery yields a small candidate set rather than one
+ * key, and every candidate verifies the signature — that is what recovery means,
+ * so cryptography cannot narrow it here. Two things do:
+ *
+ *   1. On-chain evidence. A deployed contract, or a balance sitting at an
+ *      address that is not deployed yet, identifies the real wallet.
+ *   2. A second signature. The true key is in both candidate sets; the false
+ *      ones are derived from the signature and do not survive a new one. Asked
+ *      for only when the first step finds nothing, which means the wallet is
+ *      both undeployed and empty.
+ */
+export async function recoverWalletFromAssertion(
+  assertion: RecoveryAssertion,
+): Promise<{ address: string; publicKey: Uint8Array } | null> {
+  const net = getNetwork();
+  const derive = (key: Uint8Array) =>
+    computeWalletAddress(net.factoryContractId, key, net.networkPassphrase);
+
+  const candidates = recoverPublicKeyCandidates(assertion);
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) {
+    return { address: derive(candidates[0]), publicKey: candidates[0] };
+  }
+
+  // 1. On-chain evidence.
+  const withEvidence: { address: string; publicKey: Uint8Array }[] = [];
+  for (const publicKey of candidates) {
+    const address = derive(publicKey);
+    const [deployed, balance] = await Promise.all([
+      isWalletDeployed(address).catch(() => false),
+      fetchContractXlm(address).catch(() => 0),
+    ]);
+    if (deployed || balance > 0) withEvidence.push({ address, publicKey });
+  }
+  if (withEvidence.length === 1) return withEvidence[0];
+
+  // 2. A second signature from the same credential, and intersect.
+  const second = await assertForKeyRecovery(assertion.credentialId);
+  if (!second) return null;
+  const seen = new Set(
+    recoverPublicKeyCandidates(second).map((key) => Buffer.from(key).toString('hex')),
+  );
+  const shared = candidates.filter((key) => seen.has(Buffer.from(key).toString('hex')));
+  if (shared.length !== 1) return null;
+  return { address: derive(shared[0]), publicKey: shared[0] };
 }
