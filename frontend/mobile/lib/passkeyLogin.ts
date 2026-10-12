@@ -1,12 +1,11 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { p256 } from '@noble/curves/p256.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { Keypair, StrKey } from '@stellar/stellar-sdk';
 import { Buffer } from 'buffer';
 
 import { recordFeePayerSource } from './feePayerSource';
-import { getNetworkName } from './network';
 import { discoverWithPrf, nativePrfEvaluator, type DiscoveredPasskey } from './passkey';
+import { SDK_ADDRESS, SDK_KEY_ID, SDK_PUBLIC_KEY, getSdkItem, setSdkItems } from './sdkStorage';
 import { readSigners, WalletContractNotFoundError, type WalletSigner } from './signers';
 import { readBreadcrumbs, writeBreadcrumbs } from './walletBreadcrumbs';
 import { getSignerSecret, getWalletAddress, setPasskeyCredential, setPasskeyId, setSignerSecret, setWalletAddress } from './walletStore';
@@ -16,10 +15,8 @@ import { hexToUint8Array } from './webauthn';
 const FEE_PAYER_PRF_SALT = new Uint8Array(new TextEncoder().encode('invisible-wallet/prf/feepayer/v1'));
 
 // SDK storage keys — mirrored so the SDK's login()/signAuthEntry() see the
-// recovered wallet exactly as if register() had run on this device.
-const SDK_ADDRESS = 'invisible_wallet_address';
-const SDK_KEY_ID = 'invisible_wallet_key_id';
-const SDK_PUBLIC_KEY = 'invisible_wallet_public_key';
+// recovered wallet exactly as if register() had run on this device. Read and
+// written through sdkStorage so they carry the active network's namespace.
 
 export type LoginResult = {
   address: string;
@@ -78,9 +75,9 @@ export async function loginWithPasskey(): Promise<LoginResult> {
   // public key come straight from that copy — no breadcrumbs required. Write
   // the breadcrumbs afterwards so a genuinely fresh device works next time.
   const [sdkAddress, sdkKeyId, sdkPubKey] = await Promise.all([
-    AsyncStorage.getItem(SDK_ADDRESS).catch(() => null),
-    AsyncStorage.getItem(SDK_KEY_ID).catch(() => null),
-    AsyncStorage.getItem(SDK_PUBLIC_KEY).catch(() => null),
+    getSdkItem(SDK_ADDRESS),
+    getSdkItem(SDK_KEY_ID),
+    getSdkItem(SDK_PUBLIC_KEY),
   ]);
   if (sdkAddress && sdkKeyId) {
     const prf = await nativePrfEvaluator(sdkKeyId)(FEE_PAYER_PRF_SALT);
@@ -136,7 +133,7 @@ export async function loginWithPasskey(): Promise<LoginResult> {
     [SDK_KEY_ID, picked.credentialId],
   ];
   if (crumbs.publicKeyBytes) sdkWrites.push([SDK_PUBLIC_KEY, toHex(crumbs.publicKeyBytes)]);
-  await AsyncStorage.multiSet(sdkWrites);
+  await setSdkItems(sdkWrites);
 
   return { address: crumbs.walletAddress, source: 'recovered' };
 }
@@ -250,10 +247,9 @@ function findMatchingSigner(picked: DiscoveredPasskey, signers: WalletSigner[]):
 
 /** Write the SDK's AsyncStorage keys, namespaced per network like walletStore. */
 async function writeSdkMirror(address: string, credentialId: string, publicKeyHex: string): Promise<void> {
-  const suffix = getNetworkName() === 'mainnet' ? '_mainnet' : '';
-  await AsyncStorage.multiSet([
-    [`${SDK_ADDRESS}${suffix}`, address],
-    [`${SDK_KEY_ID}${suffix}`, credentialId],
-    [`${SDK_PUBLIC_KEY}${suffix}`, publicKeyHex],
+  await setSdkItems([
+    [SDK_ADDRESS, address],
+    [SDK_KEY_ID, credentialId],
+    [SDK_PUBLIC_KEY, publicKeyHex],
   ]);
 }

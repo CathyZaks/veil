@@ -28,13 +28,13 @@
 
 import { p256 } from '@noble/curves/p256.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Buffer } from 'buffer';
 import { computeWalletAddress } from '@veil/sdk';
 
 import { getFeePayerAddress } from './activity';
-import { getNetwork, getNetworkName } from './network';
+import { getNetwork } from './network';
 import { assertForKeyRecovery, type RecoveryAssertion } from './passkey';
+import { SDK_ADDRESS, SDK_KEY_ID, SDK_PUBLIC_KEY, setSdkItems } from './sdkStorage';
 import { writeBreadcrumbs } from './walletBreadcrumbs';
 import { getPasskeyId, getSignerSecret, setPasskeyCredential } from './walletStore';
 
@@ -124,10 +124,9 @@ export async function recoverWalletPublicKey(walletAddress: string): Promise<Uin
 
 /** The SDK's AsyncStorage keys, namespaced per network exactly as walletStore does. */
 async function writeSdkMirror(address: string, credentialId: string, publicKeyHex: string): Promise<void> {
-  const suffix = getNetworkName() === 'mainnet' ? '_mainnet' : '';
-  await AsyncStorage.multiSet([
-    [`invisible_wallet_address${suffix}`, address],
-    [`invisible_wallet_key_id${suffix}`, credentialId],
-    [`invisible_wallet_public_key${suffix}`, publicKeyHex],
+  await setSdkItems([
+    [SDK_ADDRESS, address],
+    [SDK_KEY_ID, credentialId],
+    [SDK_PUBLIC_KEY, publicKeyHex],
   ]);
 }
