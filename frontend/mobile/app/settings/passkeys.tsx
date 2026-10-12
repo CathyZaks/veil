@@ -47,7 +47,9 @@ export default function PasskeysScreen() {
 
   const [signers, setSigners] = useState<WalletSigner[]>([]);
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
-  const [thisDeviceKey, setThisDeviceKey] = useState<string | null>(null);
+  // `undefined` while the secure store is still being read, so the repair card
+  // below never flashes at someone whose key is simply not loaded yet.
+  const [thisDeviceKey, setThisDeviceKey] = useState<string | null | undefined>(undefined);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [repair, setRepair] = useState<'idle' | 'running' | 'done' | 'failed'>('idle');
 
@@ -99,7 +101,7 @@ export default function PasskeysScreen() {
     void load();
     void getPasskeyPublicKey()
       .then((key) => setThisDeviceKey(key?.toLowerCase() ?? null))
-      .catch(() => undefined);
+      .catch(() => setThisDeviceKey(null));
   }, [load]);
 
   return (
