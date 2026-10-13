@@ -331,3 +331,34 @@ export async function assertForKeyRecovery(
     throw error;
   }
 }
+
+/**
+ * Whether Android is saying it has nowhere to put a passkey.
+ *
+ * `createCredentialAsync no provider dependencies found` comes from Android's
+ * Credential Manager, not from us. The app ships both halves it needs
+ * (`androidx.credentials` and `credentials-play-services-auth`, declared by
+ * react-native-passkeys), so this is the device answering: no credential
+ * provider is installed or switched on, most often because Google Password
+ * Manager is disabled as a passkey provider, Play Services is stale, or no
+ * Google account is signed in.
+ *
+ * Worth naming because the raw string reads like a missing build dependency —
+ * it sent us looking at our own gradle file first — and a user shown it has no
+ * idea the fix is three taps away in their own settings.
+ */
+export function isNoCredentialProvider(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
+  return (
+    message.includes('no provider dependencies') ||
+    message.includes('no create options') ||
+    (message.includes('provider') && message.includes('createcredential'))
+  );
+}
+
+/** What to tell someone whose phone has no passkey provider switched on. */
+export const NO_CREDENTIAL_PROVIDER_MESSAGE =
+  'This phone has no passkey provider switched on, so Android has nowhere to save it. ' +
+  'Open Settings → Passwords & accounts (or Passwords & security on Xiaomi), turn on ' +
+  'Google Password Manager as a passkey provider, and make sure you are signed in to a ' +
+  'Google account with Play Services up to date. Then come back and try again.';
