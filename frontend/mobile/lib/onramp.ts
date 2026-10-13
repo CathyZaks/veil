@@ -430,6 +430,52 @@ export function createOnrampOrder(params: {
   return call<OnrampOrder>('/ngn/onramp/orders', { method: 'POST', body: params });
 }
 
+const ACTIVE_ORDER_KEY = 'veil_ngn_active_order';
+
+/**
+ * The order this device is in the middle of.
+ *
+ * An order has a short deposit window and names a Nigerian account to pay, and
+ * the normal way to pay it is to leave for a banking app. Android is free to
+ * kill this process while that happens. Keeping the order in component state
+ * alone meant coming back to the amount field, having been told to transfer
+ * money to an account that is no longer on screen and with no way to find out
+ * whether it arrived — and the obvious recovery, creating another order, leaves
+ * two live accounts and one payment.
+ *
+ * The whole order is kept rather than just its id, because `expiresAt` is not
+ * in the status response and a restored screen with no countdown cannot say the
+ * one thing that matters: whether this account still accepts the payment.
+ */
+export async function rememberOnrampOrder(order: OnrampOrder): Promise<void> {
+  await AsyncStorage.setItem(ACTIVE_ORDER_KEY, JSON.stringify(order)).catch(() => undefined);
+}
+
+/**
+ * The stored order, or null when there is none, it is unreadable, or its window
+ * has closed. An expired order is cleared on the way out: restoring a dead one
+ * is how someone pays an account that has stopped accepting it.
+ */
+export async function loadOnrampOrder(): Promise<OnrampOrder | null> {
+  const raw = await AsyncStorage.getItem(ACTIVE_ORDER_KEY).catch(() => null);
+  if (!raw) return null;
+  try {
+    const order = JSON.parse(raw) as OnrampOrder;
+    if (!order?.orderId || !order?.expiresAt) return null;
+    if (secondsUntil(order.expiresAt) <= 0) {
+      await forgetOnrampOrder();
+      return null;
+    }
+    return order;
+  } catch {
+    return null;
+  }
+}
+
+export async function forgetOnrampOrder(): Promise<void> {
+  await AsyncStorage.removeItem(ACTIVE_ORDER_KEY).catch(() => undefined);
+}
+
 export interface OnrampStatus {
   orderId: string;
   customerRef: string;

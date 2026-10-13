@@ -59,6 +59,9 @@ import {
   isNairaVerified,
   getOnrampStatus,
   resetNairaVerification,
+  forgetOnrampOrder,
+  loadOnrampOrder,
+  rememberOnrampOrder,
   secondsUntil,
   setNairaKycMismatch,
   type NairaCoin,
@@ -232,13 +235,36 @@ export default function BuyWithNairaScreen() {
     void loadRate();
   }, [loadRate]);
 
+  // ── Restore a live order ──────────────────────────────────────────────────
+  // Paying means leaving for a banking app, and Android may kill this process
+  // while that happens. Coming back to the amount field, with the account
+  // number gone, is how someone pays an order they can no longer track — or
+  // creates a second one and leaves two live accounts against one payment.
+  useEffect(() => {
+    let cancelled = false;
+    void loadOnrampOrder().then((pending) => {
+      if (cancelled || !pending) return;
+      setOrder(pending);
+      setStatus(pending.status);
+      setStep('pay');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // ── Countdown ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!order) return;
     const tick = () => {
       const left = secondsUntil(order.expiresAt);
       setSecondsLeft(left);
-      if (left === 0) setStep((s) => (s === 'pay' || s === 'waiting' ? 'expired' : s));
+      if (left === 0) {
+        // The window has closed, so the stored copy goes with it — a relaunch
+        // must not restore an account that has stopped accepting payment.
+        void forgetOnrampOrder();
+        setStep((s) => (s === 'pay' || s === 'waiting' ? 'expired' : s));
+      }
     };
     tick();
     const id = setInterval(tick, 1000);
@@ -252,8 +278,15 @@ export default function BuyWithNairaScreen() {
       try {
         const s = await getOnrampStatus(customerRef, order.orderId);
         setStatus(s.status);
-        if (/complete|success|settled/i.test(s.status)) setStep('done');
-        if (/fail|cancel/i.test(s.status)) setError('This order did not complete.');
+        if (/complete|success|settled/i.test(s.status)) {
+          // Settled, so the account must not be restored and offered again.
+          void forgetOnrampOrder();
+          setStep('done');
+        }
+        if (/fail|cancel/i.test(s.status)) {
+          void forgetOnrampOrder();
+          setError('This order did not complete.');
+        }
       } catch {
         // Silent: a failed poll is not news the user can act on, and the
         // countdown already tells them where they stand.
@@ -296,6 +329,7 @@ export default function BuyWithNairaScreen() {
         rate: fresh,
         coin,
       });
+      void rememberOnrampOrder(created);
       setOrder(created);
       setStatus(created.status);
       setStep('pay');
@@ -707,6 +741,7 @@ export default function BuyWithNairaScreen() {
 
             <Pressable
               onPress={() => {
+                void forgetOnrampOrder();
                 setOrder(null);
                 setSecondsLeft(null);
                 setError(null);
