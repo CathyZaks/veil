@@ -96,6 +96,13 @@ export default function VerifyScreen() {
   const [rejection, setRejection] = useState<string | null>(null);
   /** Linq verifies this NIN, but against a reference that is not this one. */
   const [stranded, setStranded] = useState(false);
+  /**
+   * Which call failed. Provisioning runs before the NIN is sent, so a failure
+   * there is not a NIN rejection and must not be reported as one: the number
+   * was never checked, nothing was spent, and "check your 11 digits" is advice
+   * about a step that did not happen.
+   */
+  const [failedPhase, setFailedPhase] = useState<'provision' | 'kyc'>('kyc');
 
   const ninInput = useRef<TextInput>(null);
 
@@ -148,6 +155,7 @@ export default function VerifyScreen() {
     setBusy(true);
     setRejection(null);
     setStranded(false);
+    setFailedPhase('provision');
     try {
       // Ask Linq what it already thinks of this reference before spending a
       // NIN attempt on it.
@@ -177,6 +185,8 @@ export default function VerifyScreen() {
         return;
       }
 
+      // Past this line a failure is about the NIN itself.
+      setFailedPhase('kyc');
       const result = await submitKyc(customerRef, nin);
       // Cleared whichever way it went. A rejected NIN is still a NIN.
       setNin('');
@@ -488,7 +498,29 @@ export default function VerifyScreen() {
                 </>
               ) : null}
 
-              {stage === 'rejected' && !stranded ? (
+              {stage === 'rejected' && !stranded && failedPhase === 'provision' ? (
+                <View style={styles.errorCard}>
+                  <View style={styles.infoRow}>
+                    <InfoIcon size={16} color={colors.danger} />
+                    <View style={styles.flex}>
+                      <Text style={styles.errorTitle}>Couldn&apos;t set up your details</Text>
+                      <Text style={styles.errorBody}>
+                        This failed before your NIN was sent, so it was never checked and
+                        nothing has been used up. The naira service would not accept the
+                        details on the previous screen — most often the email or the phone
+                        number.
+                      </Text>
+                      <Text style={styles.errorBody}>
+                        Check the email is one you can receive at, and try the phone in full
+                        international form, for example +2348030000000.
+                      </Text>
+                      {rejection ? <Text style={styles.errorDetail}>{rejection}</Text> : null}
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
+              {stage === 'rejected' && !stranded && failedPhase === 'kyc' ? (
                 <>
                   {/* A rejection has to say what to do next, and the likeliest
                       cause is not a typo — it is the name. Linq matches the NIN

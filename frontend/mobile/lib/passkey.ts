@@ -372,3 +372,34 @@ export const NO_CREDENTIAL_PROVIDER_MESSAGE =
   'without one. Then open Settings → Google → All services → Autofill & Passwords and ' +
   'turn on "Autofill with Google". On Xiaomi and Redmi it may instead be under ' +
   'Settings → Additional settings → Languages & input → Autofill service — pick Google there.';
+
+/**
+ * Whether the platform refused because this device already holds a Veil passkey.
+ *
+ * The SDK passes the stored credential id as `excludeCredentials` so one device
+ * cannot register twice for the same wallet, and Android enforces that by
+ * refusing outright: "One of the excluded credentials exists on the local
+ * device." The raw string names a WebAuthn mechanism and no action, so it reads
+ * as a failure when it is in fact the platform saying the thing already exists.
+ *
+ * Two ways to arrive here, with opposite fixes, which is why the message offers
+ * both: a wallet is already set up on this device and should be signed into
+ * rather than recreated, or a reset left the SDK's credential id behind while
+ * clearing the secure store, so the app wants to create a wallet the OS thinks
+ * it already has.
+ */
+export function isExcludedCredentialExists(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
+  return (
+    message.includes('excluded credential') ||
+    message.includes('excludecredentials') ||
+    message.includes('already registered')
+  );
+}
+
+/** What to tell someone whose device already holds a passkey for this wallet. */
+export const CREDENTIAL_ALREADY_EXISTS_MESSAGE =
+  'This device already has a Veil passkey, so a new one cannot be created over it. ' +
+  'If you already have a wallet here, go back and sign in with it instead. ' +
+  'If you meant to start fresh, reset the wallet first in Settings \u2192 Danger zone \u2014 ' +
+  'that clears the old credential so a new one can be created.';

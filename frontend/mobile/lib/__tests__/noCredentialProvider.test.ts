@@ -8,7 +8,12 @@
  * the device reporting that no provider is enabled to store the credential.
  */
 
-import { isNoCredentialProvider, NO_CREDENTIAL_PROVIDER_MESSAGE } from '../passkey';
+import {
+  CREDENTIAL_ALREADY_EXISTS_MESSAGE,
+  isExcludedCredentialExists,
+  isNoCredentialProvider,
+  NO_CREDENTIAL_PROVIDER_MESSAGE,
+} from '../passkey';
 
 describe('isNoCredentialProvider', () => {
   it.each([
@@ -39,5 +44,39 @@ describe('isNoCredentialProvider', () => {
     expect(NO_CREDENTIAL_PROVIDER_MESSAGE).toMatch(/Settings/);
     expect(NO_CREDENTIAL_PROVIDER_MESSAGE).toMatch(/Autofill with Google/);
     expect(NO_CREDENTIAL_PROVIDER_MESSAGE).toMatch(/screen lock/);
+  });
+});
+
+/**
+ * The platform refusing because the passkey already exists.
+ *
+ * The SDK passes the stored credential id as `excludeCredentials`, so Android
+ * answers "One of the excluded credentials exists on the local device" — which
+ * names a WebAuthn mechanism and no action, and reads as a failure when it is
+ * the platform saying the thing is already there.
+ */
+describe('isExcludedCredentialExists', () => {
+  it.each([
+    'One of the excluded credentials exists on the local device.',
+    'androidx.credentials.exceptions.CreateCredentialCancellationException: excludeCredentials matched',
+    'The credential is already registered for this relying party',
+  ])('recognises %s', (message) => {
+    expect(isExcludedCredentialExists(new Error(message))).toBe(true);
+  });
+
+  // These have their own answers, and sending any of them to "reset your
+  // wallet" would be destructive advice for a problem that is not that.
+  it.each([
+    'createCredentialAsync no provider dependencies found',
+    'The operation was cancelled by the user',
+    'Network request failed',
+  ])('does not claim %s', (message) => {
+    expect(isExcludedCredentialExists(new Error(message))).toBe(false);
+  });
+
+  // Two opposite fixes, so the message has to offer both.
+  it('names both ways out', () => {
+    expect(CREDENTIAL_ALREADY_EXISTS_MESSAGE).toMatch(/sign in/i);
+    expect(CREDENTIAL_ALREADY_EXISTS_MESSAGE).toMatch(/reset/i);
   });
 });

@@ -10,7 +10,12 @@ import type { ThemeColors } from '../lib/theme';
 import { fontFamily } from '../theme/typography';
 import { FlowHeader } from '../components/FlowHeader';
 import { createTestnetWallet, importTestnetWallet, type CreatedWallet } from '../lib/testnetWallet';
-import { NO_CREDENTIAL_PROVIDER_MESSAGE, isNoCredentialProvider } from '../lib/passkey';
+import {
+  CREDENTIAL_ALREADY_EXISTS_MESSAGE,
+  NO_CREDENTIAL_PROVIDER_MESSAGE,
+  isExcludedCredentialExists,
+  isNoCredentialProvider,
+} from '../lib/passkey';
 import {
   createPasskeyWallet,
   recreatePasskeyWallet,
@@ -101,7 +106,13 @@ export default function CreateWallet() {
       // Android's own words here are "createCredentialAsync no provider
       // dependencies found", which reads as a bug in this app's build. It is
       // not: the phone has no passkey provider enabled. Say what to do.
-      setError(isNoCredentialProvider(e) ? NO_CREDENTIAL_PROVIDER_MESSAGE : errorMessage(e));
+      setError(
+        isNoCredentialProvider(e)
+          ? NO_CREDENTIAL_PROVIDER_MESSAGE
+          : isExcludedCredentialExists(e)
+            ? CREDENTIAL_ALREADY_EXISTS_MESSAGE
+            : errorMessage(e),
+      );
       setStatus('error');
     }
   }
