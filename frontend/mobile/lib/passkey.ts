@@ -356,9 +356,19 @@ export function isNoCredentialProvider(error: unknown): boolean {
   );
 }
 
-/** What to tell someone whose phone has no passkey provider switched on. */
+/**
+ * What to tell someone whose phone has no passkey provider switched on.
+ *
+ * The screen lock is first because it is the one people have genuinely not got,
+ * and Google Password Manager refuses to create a passkey without one — the
+ * passkey is released by that lock, so there is nothing to hold it shut
+ * otherwise. The Google path is given before the Xiaomi one because it is the
+ * same on every skin; the per-manufacturer menus move between OS versions, and
+ * on HyperOS the autofill setting is not under anything called "passwords".
+ */
 export const NO_CREDENTIAL_PROVIDER_MESSAGE =
   'This phone has no passkey provider switched on, so Android has nowhere to save it. ' +
-  'Open Settings → Passwords & accounts (or Passwords & security on Xiaomi), turn on ' +
-  'Google Password Manager as a passkey provider, and make sure you are signed in to a ' +
-  'Google account with Play Services up to date. Then come back and try again.';
+  'First set a screen lock (PIN, pattern or fingerprint) — a passkey cannot be created ' +
+  'without one. Then open Settings → Google → All services → Autofill & Passwords and ' +
+  'turn on "Autofill with Google". On Xiaomi and Redmi it may instead be under ' +
+  'Settings → Additional settings → Languages & input → Autofill service — pick Google there.';

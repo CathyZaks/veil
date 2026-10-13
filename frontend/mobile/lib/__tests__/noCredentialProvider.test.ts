@@ -37,6 +37,7 @@ describe('isNoCredentialProvider', () => {
   // The whole point is that it names the setting to change.
   it('tells the user where to go', () => {
     expect(NO_CREDENTIAL_PROVIDER_MESSAGE).toMatch(/Settings/);
-    expect(NO_CREDENTIAL_PROVIDER_MESSAGE).toMatch(/Google Password Manager/);
+    expect(NO_CREDENTIAL_PROVIDER_MESSAGE).toMatch(/Autofill with Google/);
+    expect(NO_CREDENTIAL_PROVIDER_MESSAGE).toMatch(/screen lock/);
   });
 });
