@@ -96,7 +96,7 @@ export async function previewSpendFee(params: {
   // The free path: the smart wallet can cover it alone.
   if (contract && inWallet > 0 && amountNumber <= inWallet) return null;
 
-  const fee = await fetchPlatformFee(asset?.code ?? 'XLM');
+  const fee = await fetchPlatformFee(asset?.code ?? 'XLM', amountNumber);
   if (!fee) return null;
 
   const inSpending = asset
@@ -222,7 +222,7 @@ export async function spendAsset(params: {
   // Denominated in whatever is being sent, so affording the payment means
   // affording the fee: no second balance, no extra trustline, and no way for
   // a missing fee asset to take the real payment down with it.
-  const fee = await fetchPlatformFee(code);
+  const fee = await fetchPlatformFee(code, amountNumber);
   const feeAffordable = fee ? (inSpending ?? 0) >= amountNumber + Number(fee.amount) : false;
 
   const result = await sendPayment(
