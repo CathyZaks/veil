@@ -133,7 +133,10 @@ export default function VerifyScreen() {
     };
   }, []);
 
-  const fullName = `${firstName} ${lastName}`.trim();
+  // Joined from the trimmed parts, not trimmed at the ends. A trailing space
+  // in the first name rendered "Sulaiman  Hussein" with a double gap on the one
+  // screen that asks someone to compare this against their NIN record.
+  const fullName = [firstName, lastName].map((part) => part.trim()).filter(Boolean).join(' ');
   const whoReady =
     firstName.trim() !== '' && lastName.trim() !== '' && email.trim() !== '' && phone.trim() !== '';
 
