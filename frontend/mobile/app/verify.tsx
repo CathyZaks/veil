@@ -193,7 +193,17 @@ export default function VerifyScreen() {
       //
       // This was in `buy-ngn` before verification moved to its own route, and
       // dropping it on the way is why that screen handled this better.
-      if (/already|duplicate|exists|in use|verified/i.test(message)) {
+      // The code when there is one, the prose only when there is not. Linq
+      // names this case `nin_already_used`; the regex below was the only test
+      // before the code was carried through, and it reads a reworded message
+      // as a plain rejection — which sends someone whose NIN is spent to a
+      // screen telling them to check their spelling.
+      const code = (err as { code?: string })?.code;
+      const spent = code
+        ? /nin_already_used|already_verified|duplicate/i.test(code)
+        : /already|duplicate|exists|in use|verified/i.test(message);
+
+      if (spent) {
         // Both halves are now known, and together they are conclusive: Linq
         // says this reference is unverified (the check above) and says this
         // NIN is spent (this error). So the NIN is bound to some other

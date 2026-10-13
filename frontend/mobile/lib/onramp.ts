@@ -68,7 +68,15 @@ async function call<T>(
       throw new NairaUnavailable(withoutProviderName(data?.error ?? 'Naira rails unavailable'));
     }
     if (!res.ok) {
-      throw new Error(withoutProviderName(data?.error ?? `Request failed (${res.status})`));
+      // `code` is the stable half of the answer — `nin_already_used` and the
+      // like. Dropping it left callers matching on the prose, which is both
+      // scrubbed of the provider's name here and liable to be reworded by the
+      // provider, so a real user gets sent down the wrong branch the first time
+      // either changes. It is provider-neutral, so it needs no scrubbing.
+      throw Object.assign(
+        new Error(withoutProviderName(data?.error ?? `Request failed (${res.status})`)),
+        typeof data?.code === 'string' && data.code ? { code: data.code as string } : {},
+      );
     }
     return data as T;
   } catch (err) {
