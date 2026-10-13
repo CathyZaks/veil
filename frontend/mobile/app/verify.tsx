@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 
 import { FlowHeader } from '../components/FlowHeader';
+import { useNetwork } from '../hooks/useNetwork';
 import { useTheme } from '../hooks/useTheme';
 import type { ThemeColors } from '../lib/theme';
 import { fontFamily } from '../theme/typography';
@@ -67,6 +68,20 @@ export default function VerifyScreen() {
 
   const [stage, setStage] = useState<Stage>('who');
   const [busy, setBusy] = useState(false);
+  /**
+   * A NIN verifies once, ever, against one customer reference — and the
+   * reference is derived from the wallet address, which differs per network.
+   *
+   * Buy refuses on testnet already. This screen did not, so a testnet session
+   * could spend someone's single, permanent NIN registration on a reference
+   * their mainnet wallet will never produce. The lockout that follows has no
+   * self-service fix: on mainnet they get a new reference, Linq sees a NIN it
+   * has already met, and only Linq can re-bind it. Refusing here costs nothing
+   * and is the only version of this screen that cannot strand someone.
+   */
+  const { networkName } = useNetwork();
+  const mainnetOnly = networkName !== 'mainnet';
+
   const [customerRef, setCustomerRef] = useState<string | null>(null);
 
   const [firstName, setFirstName] = useState('');
@@ -129,7 +144,7 @@ export default function VerifyScreen() {
   }, [firstName, lastName, email, phone]);
 
   const verify = useCallback(async () => {
-    if (!customerRef || nin.length !== NIN_LENGTH) return;
+    if (!customerRef || nin.length !== NIN_LENGTH || mainnetOnly) return;
     setBusy(true);
     setRejection(null);
     setStranded(false);
@@ -224,7 +239,7 @@ export default function VerifyScreen() {
     } finally {
       setBusy(false);
     }
-  }, [customerRef, nin, firstName, lastName, email, phone]);
+  }, [customerRef, nin, firstName, lastName, email, phone, mainnetOnly]);
 
   const finish = useCallback(() => {
     router.replace(returnTo);
@@ -265,6 +280,23 @@ export default function VerifyScreen() {
                 </View>
                 <Text style={styles.stepCount}>{stepOfTwo} / 2</Text>
               </View>
+
+              {mainnetOnly ? (
+                <View style={styles.errorCard}>
+                  <View style={styles.infoRow}>
+                    <InfoIcon size={16} color={colors.danger} />
+                    <View style={styles.flex}>
+                      <Text style={styles.errorTitle}>Switch to mainnet to verify</Text>
+                      <Text style={styles.errorBody}>
+                        Your NIN can be verified once, ever, and it gets tied to the wallet
+                        you verify from. Doing that on testnet would spend it on a wallet
+                        that only exists here, and your real one could never be verified
+                        afterwards. Switch network in Settings, then come back.
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
 
               {/* Two segments, not one filling bar: there are two questions and
                   the second is the one people hesitate over. Seeing it is the
@@ -340,12 +372,12 @@ export default function VerifyScreen() {
 
               <Pressable
                 onPress={goToNin}
-                disabled={!whoReady}
+                disabled={!whoReady || mainnetOnly}
                 accessibilityRole="button"
                 accessibilityLabel="Continue"
                 style={({ pressed }) => [
                   styles.cta,
-                  !whoReady && styles.ctaOff,
+                  (!whoReady || mainnetOnly) && styles.ctaOff,
                   pressed && styles.pressed,
                 ]}
               >
@@ -409,12 +441,12 @@ export default function VerifyScreen() {
 
                   <Pressable
                     onPress={() => void verify()}
-                    disabled={busy || nin.length !== NIN_LENGTH}
+                    disabled={busy || nin.length !== NIN_LENGTH || mainnetOnly}
                     accessibilityRole="button"
                     accessibilityLabel="Verify"
                     style={({ pressed }) => [
                       styles.cta,
-                      (busy || nin.length !== NIN_LENGTH) && styles.ctaOff,
+                      (busy || nin.length !== NIN_LENGTH || mainnetOnly) && styles.ctaOff,
                       pressed && styles.pressed,
                     ]}
                   >
