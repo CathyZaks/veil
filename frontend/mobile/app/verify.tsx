@@ -118,9 +118,8 @@ export default function VerifyScreen() {
       .catch(() => undefined);
 
     // Come back with what they typed last time. A rejected NIN is the common
-    // case — Linq matches it against the name, so a middle name or a different
-    // spelling fails a number that is correct — and retyping four fields to try
-    // again is how a fixable mistake becomes an abandoned signup.
+    // case, and retyping four fields to try again is how a fixable mistake
+    // becomes an abandoned signup.
     loadVerifyDetails()
       .then((d) => {
         if (cancelled || !d) return;
@@ -225,7 +224,7 @@ export default function VerifyScreen() {
       // names this case `nin_already_used`; the regex below was the only test
       // before the code was carried through, and it reads a reworded message
       // as a plain rejection — which sends someone whose NIN is spent to a
-      // screen telling them to check their spelling.
+      // screen about a spelling that is never checked.
       const code = (err as { code?: string })?.code;
       setFailure(ninFailureFor(code));
       const spent = code
@@ -527,10 +526,11 @@ export default function VerifyScreen() {
 
               {stage === 'rejected' && !stranded && failedPhase === 'kyc' ? (
                 <>
-                  {/* A rejection has to say what to do next, and the likeliest
-                      cause is not a typo — it is the name. Linq matches the NIN
-                      against the name given on the previous screen, so a middle
-                      name or a different spelling fails a NIN that is correct. */}
+                  {/* A rejection has to say what to do next, and for a long
+                      time this said the wrong thing: it blamed the name. The
+                      provider confirmed on 2026-10-14 that the check is the NIN
+                      alone, so the cause is the number or their own service —
+                      never a spelling. The code decides the wording now. */}
                   <View style={styles.errorCard}>
                     <View style={styles.infoRow}>
                       <InfoIcon size={16} color={colors.danger} />
@@ -554,7 +554,7 @@ export default function VerifyScreen() {
                   <View style={styles.infoRow}>
                     <LockIcon size={14} color={colors.textFaint} />
                     <Text style={styles.help}>
-                      Nothing was saved. Fix the number or your name and try again.
+                      Nothing was saved and your NIN has not been used up.
                     </Text>
                   </View>
 
