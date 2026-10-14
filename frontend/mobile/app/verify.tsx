@@ -21,6 +21,7 @@ import { useTheme } from '../hooks/useTheme';
 import type { ThemeColors } from '../lib/theme';
 import { fontFamily } from '../theme/typography';
 import { errorMessage } from '../lib/errorMessage';
+import { ninFailureFor, isNinSpent, type NinFailure } from '../lib/ninFailure';
 import { CheckIcon, InfoIcon, LockIcon } from '../components/icons';
 import {
   getCustomerRef,
@@ -103,6 +104,8 @@ export default function VerifyScreen() {
    * about a step that did not happen.
    */
   const [failedPhase, setFailedPhase] = useState<'provision' | 'kyc'>('kyc');
+  /** What the provider's code says this failure was, when it sent one. */
+  const [failure, setFailure] = useState<NinFailure | null>(null);
 
   const ninInput = useRef<TextInput>(null);
 
@@ -133,10 +136,6 @@ export default function VerifyScreen() {
     };
   }, []);
 
-  // Joined from the trimmed parts, not trimmed at the ends. A trailing space
-  // in the first name rendered "Sulaiman  Hussein" with a double gap on the one
-  // screen that asks someone to compare this against their NIN record.
-  const fullName = [firstName, lastName].map((part) => part.trim()).filter(Boolean).join(' ');
   const whoReady =
     firstName.trim() !== '' && lastName.trim() !== '' && email.trim() !== '' && phone.trim() !== '';
 
@@ -158,6 +157,7 @@ export default function VerifyScreen() {
     setBusy(true);
     setRejection(null);
     setStranded(false);
+    setFailure(null);
     setFailedPhase('provision');
     try {
       // Ask Linq what it already thinks of this reference before spending a
@@ -227,8 +227,9 @@ export default function VerifyScreen() {
       // as a plain rejection — which sends someone whose NIN is spent to a
       // screen telling them to check their spelling.
       const code = (err as { code?: string })?.code;
+      setFailure(ninFailureFor(code));
       const spent = code
-        ? /nin_already_used|already_verified|duplicate/i.test(code)
+        ? isNinSpent(code)
         : /already|duplicate|exists|in use|verified/i.test(message);
 
       if (spent) {
@@ -405,7 +406,8 @@ export default function VerifyScreen() {
               <Text style={styles.title}>Enter your NIN</Text>
               {stage === 'nin' ? (
                 <Text style={styles.lede}>
-                  It has to belong to {fullName || 'you'}, the name you just gave us.
+                  Eleven digits from your NIN slip. Only the number is checked — it is not
+                  matched against the name you gave.
                 </Text>
               ) : null}
 
@@ -533,11 +535,16 @@ export default function VerifyScreen() {
                     <View style={styles.infoRow}>
                       <InfoIcon size={16} color={colors.danger} />
                       <View style={styles.flex}>
-                        <Text style={styles.errorTitle}>That NIN didn’t verify</Text>
+                        {/* The provider's own code when it sent one, and only
+                            then a generic line. Guessing is how this screen came
+                            to tell people their name was wrong when the name is
+                            never checked at all. */}
+                        <Text style={styles.errorTitle}>
+                          {failure?.title ?? 'That NIN didn’t verify'}
+                        </Text>
                         <Text style={styles.errorBody}>
-                          Check the 11 digits first. If they’re right, the name on your NIN
-                          record may not match {fullName || 'the name you gave'} — for example a
-                          middle name, or a different spelling.
+                          {failure?.body
+                            ?? 'Check the 11 digits against your NIN slip. Only the number is checked, so your name, its order and any middle names make no difference here.'}
                         </Text>
                         {rejection ? <Text style={styles.errorDetail}>{rejection}</Text> : null}
                       </View>
